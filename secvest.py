@@ -120,8 +120,12 @@ class Secvest():
     def get_faults(self):
         """Get list of faults (open zones).
 
-        Returns list of open zones (IDs, not user-friendly names).
+        Returns list of open zones (IDs, not human-friendly names).
         Note: API response includes also user-frienfly zone names.
+
+        Warning: Response does not include faults in final exits, such
+        as main door and garage door. Use function get_global_status()
+        to get all faults.
         """
         try:
             url = self.URLBASE + 'faults/'
@@ -179,7 +183,7 @@ class Secvest():
             traceback.print_exc()
 
 
-    def __parse_sec_global_status(self, str):
+    def parse_sec_global_status(self, str):
         """Parse response to GET /sec_global_status."""
         tree = ET.fromstring(str)
         open_zones = map(lambda p: p.find('name').text,
@@ -187,7 +191,10 @@ class Secvest():
         return open_zones
 
     def get_global_status(self):
-        """Request global status"""
+        """Request global status with open zones
+
+        Returns list of open zones (user-friendly names).
+        """
         try:
             url = self.URLBASE + 'sec_global_status.cgx'
             dt = datetime.now()
@@ -195,11 +202,10 @@ class Secvest():
             logger.debug("Requesting global status (open zones)")
             resp = requests.get(url, data=data, cookies=self.cookies, verify=False)
             logger.debug('Sec global status request response code: %d' % resp.status_code)
-            open_zones = self.__parse_sec_global_status(resp.text)
-
-            print("Open zones:")
-            for oz in open_zones:
-                print('   ' + oz)
+            # print("Response:\n")
+            # print(resp.text)
+            open_zones = self.parse_sec_global_status(resp.text)
+            return open_zones
         except:
             print('Exception')
             traceback.print_exc()
@@ -273,6 +279,44 @@ class Secvest():
             print('Response code:', resp.status_code)
             print('Response text:', resp.text)
             return True
+        except:
+            print('Exception')
+            traceback.print_exc()
+
+    def parse_walktest(self, s):
+        """Parse walktest response and extract all zones."""
+        zone_codes = dict()
+        # Extract first table
+        soup = bs(s, 'lxml')
+        table = soup.find_all('table')[0]
+
+        # Extract zone codes and names from table
+        row_marker = 0
+        for row in table.find_all('tr'):
+            column_marker = 0
+            columns = row.find_all('td')
+            # Valid table lines contain exactly 5 columns.
+            if len(columns) == 5:
+                # Code is in first 4 characters of 1st column.
+                # E.g., Z201 Radio.
+                code = columns[0].get_text()[1:4]
+                # Human-readable name is in 2nd column.
+                # We strip quotation marks.
+                name = columns[1].get_text()[1:-1]
+                # print(code, name)
+                zone_codes[name] = code
+        return zone_codes
+
+    def walktest(self):
+        """Get list of all zones from walktest functionality"""
+        try:
+            url = self.URLBASE + 'sec_zones_walk_test.cgi'
+            resp = requests.post(url,cookies=self.cookies, verify=False)
+            logger.debug('Walktest request response status code: %d' % resp.status_code)
+            # print('Response code:', resp.status_code)
+            # print('Response text:\n')
+            # print(resp.text)
+            return self.parse_walktest(resp.text)
         except:
             print('Exception')
             traceback.print_exc()
